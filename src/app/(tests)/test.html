@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Three.js 3D日本地図 - 都道府県別外国人居住者数</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Noto Sans JP', -apple-system, sans-serif;
+            background: #000;
+            overflow: hidden;
+            color: #fff;
+        }
+        
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+        
+        #info {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(10px);
+            min-width: 300px;
+            z-index: 100;
+        }
+        
+        #info h1 {
+            font-size: 1.5rem;
+            margin-bottom: 15px;
+            background: linear-gradient(45deg, #00ffff, #ff00ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        #prefecture-info {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .stat {
+            display: flex;
+            justify-content: space-between;
+            margin: 8px 0;
+            font-size: 0.9rem;
+        }
+        
+        .stat-label {
+            color: #888;
+        }
+        
+        .stat-value {
+            color: #fff;
+            font-weight: bold;
+        }
+        
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            z-index: 100;
+        }
+        
+        button {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            margin: 5px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 1.5rem;
+            color: #00ffff;
+        }
+        
+        .legend {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            z-index: 100;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin: 5px 0;
+            font-size: 0.85rem;
+        }
+        
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            margin-right: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+    </style>
+</head>
+<body>
+    <div id="canvas-container">
+        <div id="loading">日本地図を生成中...</div>
+    </div>
+    
+    <div id="info">
+        <h1>🗾 3D日本地図</h1>
+        <p style="color: #888; font-size: 0.85rem;">外国人居住者数 (2024年)</p>
+        <div id="prefecture-info">
+            <div class="stat">
+                <span class="stat-label">選択中:</span>
+                <span class="stat-value" id="selected-name">なし</span>
+            </div>
+            <div class="stat">
+                <span class="stat-label">外国人数:</span>
+                <span class="stat-value" id="selected-population">-</span>
+            </div>
+            <div class="stat">
+                <span class="stat-label">全国比:</span>
+                <span class="stat-value" id="selected-ratio">-</span>
+            </div>
+        </div>
+    </div>
+    
+    <div id="controls">
+        <button onclick="resetCamera()">視点リセット</button>
+        <button onclick="toggleRotation()">自動回転</button>
+        <button onclick="showHeatmap()">ヒートマップ</button>
+        <button onclick="extrudeMap()">3D押し出し</button>
+    </div>
+    
+    <div class="legend">
+        <div class="legend-item">
+            <div class="legend-color" style="background: #ff0000;"></div>
+            <span>50万人以上</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #ff6600;"></div>
+            <span>20-50万人</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #ffcc00;"></div>
+            <span>10-20万人</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #66ff66;"></div>
+            <span>5-10万人</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #333333;"></div>
+            <span>5万人未満</span>
+        </div>
+    </div>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // 都道府県データ
+        const prefectureData = {
+            "北海道": { population: 24981, lat: 43.06, lng: 141.35, code: 1 },
+            "青森県": { population: 9876, lat: 40.82, lng: 140.74, code: 2 },
+            "岩手県": { population: 8543, lat: 39.70, lng: 141.15, code: 3 },
+            "宮城県": { population: 24156, lat: 38.27, lng: 140.87, code: 4 },
+            "秋田県": { population: 7432, lat: 39.72, lng: 140.10, code: 5 },
+            "山形県": { population: 9654, lat: 38.24, lng: 140.36, code: 6 },
+            "福島県": { population: 34213, lat: 37.75, lng: 140.47, code: 7 },
+            "茨城県": { population: 103315, lat: 36.34, lng: 140.45, code: 8 },
+            "栃木県": { population: 64766, lat: 36.57, lng: 139.88, code: 9 },
+            "群馬県": { population: 72369, lat: 36.39, lng: 139.06, code: 10 },
+            "埼玉県": { population: 262382, lat: 35.86, lng: 139.65, code: 11 },
+            "千葉県": { population: 209137, lat: 35.61, lng: 140.12, code: 12 },
+            "東京都": { population: 738946, lat: 35.68, lng: 139.69, code: 13 },
+            "神奈川県": { population: 292450, lat: 35.45, lng: 139.64, code: 14 },
+            "新潟県": { population: 30874, lat: 37.90, lng: 139.02, code: 15 },
+            "富山県": { population: 28739, lat: 36.70, lng: 137.21, code: 16 },
+            "石川県": { population: 31019, lat: 36.59, lng: 136.63, code: 17 },
+            "福井県": { population: 19462, lat: 36.07, lng: 136.22, code: 18 },
+            "山梨県": { population: 27894, lat: 35.66, lng: 138.57, code: 19 },
+            "長野県": { population: 51937, lat: 36.65, lng: 138.18, code: 20 },
+            "岐阜県": { population: 73997, lat: 35.39, lng: 136.72, code: 21 },
+            "静岡県": { population: 118848, lat: 34.98, lng: 138.38, code: 22 },
+            "愛知県": { population: 331733, lat: 35.18, lng: 136.91, code: 23 },
+            "三重県": { population: 66946, lat: 34.73, lng: 136.51, code: 24 },
+            "滋賀県": { population: 45748, lat: 35.00, lng: 135.87, code: 25 },
+            "京都府": { population: 86975, lat: 35.02, lng: 135.76, code: 26 },
+            "大阪府": { population: 333564, lat: 34.69, lng: 135.52, code: 27 },
+            "兵庫県": { population: 148190, lat: 34.69, lng: 135.18, code: 28 },
+            "奈良県": { population: 26344, lat: 34.69, lng: 135.83, code: 29 },
+            "和歌山県": { population: 14523, lat: 34.23, lng: 135.17, code: 30 },
+            "鳥取県": { population: 8765, lat: 35.50, lng: 134.24, code: 31 },
+            "島根県": { population: 10987, lat: 35.47, lng: 133.05, code: 32 },
+            "岡山県": { population: 43737, lat: 34.66, lng: 133.93, code: 33 },
+            "広島県": { population: 75021, lat: 34.40, lng: 132.46, code: 34 },
+            "山口県": { population: 13876, lat: 34.19, lng: 131.47, code: 35 },
+            "徳島県": { population: 11234, lat: 34.07, lng: 134.56, code: 36 },
+            "香川県": { population: 20338, lat: 34.34, lng: 134.04, code: 37 },
+            "愛媛県": { population: 19827, lat: 33.84, lng: 132.77, code: 38 },
+            "高知県": { population: 6543, lat: 33.56, lng: 133.53, code: 39 },
+            "福岡県": { population: 115859, lat: 33.61, lng: 130.42, code: 40 },
+            "佐賀県": { population: 14321, lat: 33.25, lng: 130.30, code: 41 },
+            "長崎県": { population: 13456, lat: 32.74, lng: 129.87, code: 42 },
+            "熊本県": { population: 28456, lat: 32.79, lng: 130.74, code: 43 },
+            "大分県": { population: 18456, lat: 33.24, lng: 131.61, code: 44 },
+            "宮崎県": { population: 10456, lat: 31.91, lng: 131.42, code: 45 },
+            "鹿児島県": { population: 18987, lat: 31.56, lng: 130.56, code: 46 },
+            "沖縄県": { population: 25223, lat: 26.21, lng: 127.68, code: 47 }
+        };
+        
+        // Three.js グローバル変数
+        let scene, camera, renderer, controls;
+        let raycaster, mouse;
+        let prefectureMeshes = [];
+        let selectedPrefecture = null;
+        let autoRotate = false;
+        let isExtruded = false;
+        
+        // 初期化
+        function init() {
+            // シーン作成
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x000000);
+            scene.fog = new THREE.Fog(0x000000, 100, 500);
+            
+            // カメラ設定
+            const aspect = window.innerWidth / window.innerHeight;
+            camera = new THREE.PerspectiveCamera(45, aspect, 0.1, 1000);
+            camera.position.set(0, 30, 50);
+            camera.lookAt(0, 0, 0);
+            
+            // レンダラー設定
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            document.getElementById('canvas-container').appendChild(renderer.domElement);
+            
+            // ライト設定
+            const ambientLight = new THREE.AmbientLight(0x404040, 1.5);
+            scene.add(ambientLight);
+            
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+            directionalLight.position.set(10, 30, 10);
+            directionalLight.castShadow = true;
+            scene.add(directionalLight);
+            
+            const pointLight = new THREE.PointLight(0x00ffff, 0.5);
+            pointLight.position.set(-20, 20, 20);
+            scene.add(pointLight);
+            
+            // レイキャスター（マウス操作用）
+            raycaster = new THREE.Raycaster();
+            mouse = new THREE.Vector2();
+            
+            // 都道府県メッシュを作成
+            createPrefectures();
+            
+            // グリッドヘルパー
+            const gridHelper = new THREE.GridHelper(100, 20, 0x222222, 0x111111);
+            scene.add(gridHelper);
+            
+            // イベントリスナー
+            window.addEventListener('resize', onWindowResize);
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('click', onMouseClick);
+            
+            // ローディング非表示
+            document.getElementById('loading').style.display = 'none';
+            
+            animate();
+        }
+        
+        // 都道府県メッシュ作成
+        function createPrefectures() {
+            const centerLat = 37.5;
+            const centerLng = 138;
+            const scale = 2;
+            
+            Object.entries(prefectureData).forEach(([name, data]) => {
+                // 位置計算（緯度経度を3D座標に変換）
+                const x = (data.lng - centerLng) * scale;
+                const z = -(data.lat - centerLat) * scale;
+                
+                // 人口に応じた色を決定
+                let color;
+                if (data.population >= 500000) color = 0xff0000;
+                else if (data.population >= 200000) color = 0xff6600;
+                else if (data.population >= 100000) color = 0xffcc00;
+                else if (data.population >= 50000) color = 0x66ff66;
+                else color = 0x333333;
+                
+                // 六角形のジオメトリ作成
+                const radius = 0.8;
+                const geometry = new THREE.CylinderGeometry(radius, radius, 0.5, 6);
+                
+                // マテリアル作成
+                const material = new THREE.MeshPhongMaterial({
+                    color: color,
+                    emissive: color,
+                    emissiveIntensity: 0.1,
+                    specular: 0xffffff,
+                    shininess: 100
+                });
+                
+                // メッシュ作成
+                const mesh = new THREE.Mesh(geometry, material);
+                mesh.position.set(x, 0, z);
+                mesh.rotation.y = Math.PI / 6; // 六角形を回転
+                mesh.userData = { name: name, data: data };
+                
+                scene.add(mesh);
+                prefectureMeshes.push(mesh);
+                
+                // ラベル（スプライト）追加
+                const canvas = document.createElement('canvas');
+                const context = canvas.getContext('2d');
+                canvas.width = 256;
+                canvas.height = 64;
+                context.font = '24px Arial';
+                context.fillStyle = 'rgba(255,255,255,0.8)';
+                context.textAlign = 'center';
+                context.fillText(name.replace(/県|府|都/, ''), 128, 40);
+                
+                const texture = new THREE.CanvasTexture(canvas);
+                const spriteMaterial = new THREE.SpriteMaterial({ 
+                    map: texture,
+                    opacity: 0.7
+                });
+                const sprite = new THREE.Sprite(spriteMaterial);
+                sprite.position.set(x, 2, z);
+                sprite.scale.set(4, 1, 1);
+                scene.add(sprite);
+            });
+        }
+        
+        // マウス移動処理
+        function onMouseMove(event) {
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            
+            // レイキャスト
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(prefectureMeshes);
+            
+            // ホバーエフェクト
+            prefectureMeshes.forEach(mesh => {
+                mesh.scale.set(1, 1, 1);
+                mesh.material.emissiveIntensity = 0.1;
+            });
+            
+            if (intersects.length > 0) {
+                const hoveredMesh = intersects[0].object;
+                hoveredMesh.scale.set(1.2, 1.2, 1.2);
+                hoveredMesh.material.emissiveIntensity = 0.5;
+                document.body.style.cursor = 'pointer';
+            } else {
+                document.body.style.cursor = 'default';
+            }
+        }
+        
+        // マウスクリック処理
+        function onMouseClick(event) {
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(prefectureMeshes);
+            
+            if (intersects.length > 0) {
+                const clickedMesh = intersects[0].object;
+                const prefectureInfo = clickedMesh.userData;
+                
+                // 選択状態を更新
+                if (selectedPrefecture) {
+                    selectedPrefecture.material.emissiveIntensity = 0.1;
+                }
+                selectedPrefecture = clickedMesh;
+                clickedMesh.material.emissiveIntensity = 0.8;
+                
+                // 情報パネル更新
+                document.getElementById('selected-name').textContent = prefectureInfo.name;
+                document.getElementById('selected-population').textContent = 
+                    prefectureInfo.data.population.toLocaleString() + '人';
+                document.getElementById('selected-ratio').textContent = 
+                    (prefectureInfo.data.population / 3768977 * 100).toFixed(2) + '%';
+                
+                // カメラを選択した都道府県にフォーカス
+                const targetPosition = clickedMesh.position.clone();
+                targetPosition.y += 20;
+                targetPosition.z += 20;
+                animateCamera(targetPosition);
+            }
+        }
+        
+        // カメラアニメーション
+        function animateCamera(targetPosition) {
+            const startPosition = camera.position.clone();
+            const duration = 1000;
+            const startTime = Date.now();
+            
+            function updateCamera() {
+                const elapsed = Date.now() - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+                const eased = 1 - Math.pow(1 - progress, 3); // イージング
+                
+                camera.position.lerpVectors(startPosition, targetPosition, eased);
+                camera.lookAt(0, 0, 0);
+                
+                if (progress < 1) {
+                    requestAnimationFrame(updateCamera);
+                }
+            }
+            updateCamera();
+        }
+        
+        // ウィンドウリサイズ処理
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        
+        // アニメーションループ
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            if (autoRotate) {
+                scene.rotation.y += 0.002;
+            }
+            
+            renderer.render(scene, camera);
+        }
+        
+        // コントロール関数
+        function resetCamera() {
+            camera.position.set(0, 30, 50);
+            camera.lookAt(0, 0, 0);
+            scene.rotation.y = 0;
+        }
+        
+        function toggleRotation() {
+            autoRotate = !autoRotate;
+        }
+        
+        function showHeatmap() {
+            prefectureMeshes.forEach(mesh => {
+                const population = mesh.userData.data.population;
+                const intensity = population / 738946; // 最大値で正規化
+                const hue = (1 - intensity) * 240; // 青から赤へ
+                mesh.material.color.setHSL(hue / 360, 1, 0.5);
+            });
+        }
+        
+        function extrudeMap() {
+            isExtruded = !isExtruded;
+            
+            prefectureMeshes.forEach(mesh => {
+                const population = mesh.userData.data.population;
+                const height = isExtruded ? (population / 50000) + 0.5 : 0.5;
+                
+                // アニメーション
+                const targetScale = { y: height * 2 };
+                const currentScale = { y: mesh.scale.y };
+                const duration = 1000;
+                const startTime = Date.now();
+                
+                function updateScale() {
+                    const elapsed = Date.now() - startTime;
+                    const progress = Math.min(elapsed / duration, 1);
+                    const eased = 1 - Math.pow(1 - progress, 3);
+                    
+                    mesh.scale.y = currentScale.y + (targetScale.y - currentScale.y) * eased;
+                    
+                    if (progress < 1) {
+                        requestAnimationFrame(updateScale);
+                    }
+                }
+                updateScale();
+            });
+        }
+        
+        // 初期化実行
+        init();
+    </script>
+</body>
+</html>
