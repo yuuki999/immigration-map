@@ -105,11 +105,11 @@ export default function JapanMap({ data, stats }: JapanMapProps) {
         : (f.geometry.coordinates as MultiPolygon).flat(1);
       coords.forEach((ring) => {
         ring.forEach(([lng, lat]) => {
-          const p = lccProject(lat, lng);
-          if (p.x < minX) minX = p.x;
-          if (p.x > maxX) maxX = p.x;
-          if (p.y < minY) minY = p.y;
-          if (p.y > maxY) maxY = p.y;
+          const projected = lccProject(lat, lng);
+          if (projected.x < minX) minX = projected.x;
+          if (projected.x > maxX) maxX = projected.x;
+          if (projected.y < minY) minY = projected.y;
+          if (projected.y > maxY) maxY = projected.y;
         });
       });
     });
@@ -164,8 +164,11 @@ export default function JapanMap({ data, stats }: JapanMapProps) {
         const [outer, ...holes] = poly;
 
         const toVec2 = ([lng, lat]: Position) => {
-          const p = lccProject(lat, lng);
-          return new THREE.Vector2((p.x + offsetX) * scale, (p.y + offsetY) * scale);
+          const projected = lccProject(lat, lng);
+          return new THREE.Vector2(
+            (projected.x + offsetX) * scale,
+            (projected.y + offsetY) * scale
+          );
         };
 
         const shape = new THREE.Shape(outer.map(toVec2));
