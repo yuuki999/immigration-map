@@ -282,7 +282,7 @@ export default function JapanMap({ data, stats }: JapanMapProps) {
   }, [ready, data, stats]);
 
   return (
-    <div className="relative w-full h-[100dvh]">
+    <div className="relative w-full h-[100dvh] bg-black">
       <Script
         src="https://unpkg.com/three@0.160.0/build/three.min.js"
         strategy="afterInteractive"
